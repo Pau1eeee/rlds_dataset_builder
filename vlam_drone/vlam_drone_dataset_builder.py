@@ -5,9 +5,12 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tensorflow_hub as hub
+import pandas as pd
+from PIL import Image
+import os
 
 
-class ExampleDataset(tfds.core.GeneratorBasedBuilder):
+class VlamDrone(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -26,29 +29,21 @@ class ExampleDataset(tfds.core.GeneratorBasedBuilder):
                 'steps': tfds.features.Dataset({
                     'observation': tfds.features.FeaturesDict({
                         'image': tfds.features.Image(
-                            shape=(64, 64, 3),
+                            shape=(800, 848, 3),
                             dtype=np.uint8,
                             encoding_format='png',
-                            doc='Main camera RGB observation.',
-                        ),
-                        'wrist_image': tfds.features.Image(
-                            shape=(64, 64, 3),
-                            dtype=np.uint8,
-                            encoding_format='png',
-                            doc='Wrist camera RGB observation.',
+                            doc='Drone camera RGB observation.',
                         ),
                         'state': tfds.features.Tensor(
-                            shape=(10,),
+                            shape=(4,),
                             dtype=np.float32,
-                            doc='Robot state, consists of [7x robot joint angles, '
-                                '2x gripper position, 1x door opening angle].',
+                            doc='Drone state, consists of [vx, vy, vz, yaw_rate].',
                         )
                     }),
                     'action': tfds.features.Tensor(
-                        shape=(10,),
+                        shape=(4,),
                         dtype=np.float32,
-                        doc='Robot action, consists of [7x joint velocities, '
-                            '2x gripper velocities, 1x terminate episode].',
+                        doc='Drone action, consists of [vx, vy, vz, yaw_rate].',
                     ),
                     'discount': tfds.features.Scalar(
                         dtype=np.float32,
@@ -90,61 +85,52 @@ class ExampleDataset(tfds.core.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Define data splits."""
         return {
-            'train': self._generate_examples(path='data/train/episode_*.npy'),
-            'val': self._generate_examples(path='data/val/episode_*.npy'),
+            'train': self._generate_examples(path=r'dataset_1'),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
         """Generator of examples for each split."""
 
-        def _parse_example(episode_path):
-            # load raw data --> this should change for your dataset
-            data = np.load(episode_path, allow_pickle=True)     # this is a list of dicts in our case
+        csv_path = os.path.join(path, "dataset.csv")
+        df = pd.read_csv(csv_path)
 
-            # assemble episode --> here we're assuming demos so we set reward to 1 at the end
-            episode = []
-            for i, step in enumerate(data):
-                # compute Kona language embedding
-                language_embedding = self._embed([step['language_instruction']])[0].numpy()
+        instruction_path = os.path.join(path, "user_input.txt")
+        with open(instruction_path, "r") as f:
+            instruction = f.read().strip()
 
-                episode.append({
-                    'observation': {
-                        'image': step['image'],
-                        'wrist_image': step['wrist_image'],
-                        'state': step['state'],
-                    },
-                    'action': step['action'],
-                    'discount': 1.0,
-                    'reward': float(i == (len(data) - 1)),
-                    'is_first': i == 0,
-                    'is_last': i == (len(data) - 1),
-                    'is_terminal': i == (len(data) - 1),
-                    'language_instruction': step['language_instruction'],
-                    'language_embedding': language_embedding,
-                })
+        # Language embedding
+        language_embedding = self._embed([instruction])[0].numpy()
 
-            # create output data sample
-            sample = {
-                'steps': episode,
-                'episode_metadata': {
-                    'file_path': episode_path
-                }
+        episode = []
+        for i, row in df.iterrows():
+            # loading image
+            img_path = os.path.join(path, f"img_{int(row.image_id):05d}.png")
+            image = np.array(Image.open(img_path).convert("RGB"), dtype=np.uint8)
+
+
+            step = {
+                'observation': {
+                    'image': image,
+                    'state': np.array([row.vx, row.vy, row.vz, row.yaw_rate], dtype=np.float32),
+                },
+                'action': np.array([row.vx, row.vy, row.vz, row.yaw_rate], dtype=np.float32),
+                'discount': 1.0,
+                'reward': float(i == len(df)-1),
+                'is_first': i == 0,
+                'is_last': i == len(df)-1,
+                'is_terminal': i == len(df)-1,
+                'language_instruction': instruction,
+                'language_embedding': language_embedding,
             }
+            episode.append(step)
 
-            # if you want to skip an example for whatever reason, simply return None
-            return episode_path, sample
+        sample = {
+            'steps': episode,
+            'episode_metadata': {
+                'file_path': csv_path
+            }
+        }
 
-        # create list of all examples
-        episode_paths = glob.glob(path)
 
-        # for smallish datasets, use single-thread parsing
-        for sample in episode_paths:
-            yield _parse_example(sample)
-
-        # for large datasets use beam to parallelize data parsing (this will have initialization overhead)
-        # beam = tfds.core.lazy_imports.apache_beam
-        # return (
-        #         beam.Create(episode_paths)
-        #         | beam.Map(_parse_example)
-        # )
-
+        # just one episode -> one key
+        yield "episode_0", sample

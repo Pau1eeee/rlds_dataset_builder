@@ -28,8 +28,8 @@ else:
 # create TF dataset
 dataset_name = args.dataset_name
 print(f"Visualizing data from dataset: {dataset_name}")
-module = importlib.import_module(dataset_name)
-ds = tfds.load(dataset_name, split='train')
+# module = importlib.import_module(dataset_name)
+ds = tfds.load(dataset_name, split='train', data_dir=r"c:\Users\paulf\tensorflow_datasets")
 ds = ds.shuffle(100)
 
 # visualize episodes

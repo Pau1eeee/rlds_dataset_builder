@@ -8,6 +8,8 @@ import tensorflow_hub as hub
 import pandas as pd
 from PIL import Image
 import os
+import shutil
+from tqdm import tqdm
 
 
 class ThwsDrone(tfds.core.GeneratorBasedBuilder):
@@ -17,6 +19,8 @@ class ThwsDrone(tfds.core.GeneratorBasedBuilder):
     RELEASE_NOTES = {
       '1.0.0': 'Initial release.',
     }
+
+    DATASET_PATH = r"/mnt/d/Projekte/Vlam/vlam_drone_project/thws_dataset"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -85,59 +89,62 @@ class ThwsDrone(tfds.core.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Define data splits."""
         return {
-            'train': self._generate_examples(root_path=r'/mnt/d/Projekte/Vlam/vlam_drone_project/data'),
+            'train': self._generate_examples(root_path=self.DATASET_PATH),
         }
 
     def _generate_examples(self, root_path: str) -> Iterator[Tuple[str, Any]]:
         """
-        Generator for each flight session in all subfolders of root_path.
-    
+        Generator that yields all episodes from a merged dataset CSV.
+
         Args:
-            root_path: The root folder containing subfolders like 'city', 'mountain', etc.
+            csv_path: Path to the merged dataset CSV containing multiple episodes.
         """
-        episode_counter = 0
+        df = pd.read_csv(os.path.join(root_path, "dataset.csv"))
 
-        for dirpath, dirnames, filenames in os.walk(root_path):
-            if 'dataset.csv' in filenames and 'user_input.txt' in filenames:
-                csv_path = os.path.join(dirpath, "dataset.csv")
-                df=pd.read_csv(csv_path)
 
-                instruction_path = os.path.join(dirpath, "user_input.txt")
-                with open(instruction_path, "r") as f:
-                    instruction = f.read().strip()
+        for episode_id, episode_df in tqdm(df.groupby("episode_id"), total=df["episode_id"].nunique(), desc="Processing episodes"):
+            episode = []
 
-                language_embedding = self._embed([instruction])[0].numpy()
 
-                episode = []
+            # Instruction und Embedding
+            language_instruction = str(episode_df.iloc[0]["instruction"])
+            language_embedding = np.array(
+                self._embed([language_instruction])[0], dtype=np.float32
+            ).reshape(512,)
 
-                for i, row in df.iterrows():
-                    img_path = os.path.join(dirpath, f"img_{int(row.image_id):05d}.png")
-                    image = np.array(Image.open(img_path).convert("RGB"), dtype=np.uint8)
+            for _, row in episode_df.iterrows():
+                img_name = f"img_{int(row.image_id):06d}.png"
+                img_path = os.path.join(root_path, "images", img_name)
+                image = np.array(Image.open(img_path).convert("RGB"), dtype=np.uint8)
 
-                    step = {
-                        'observation': {
-                            'image': image,
-                            'state': np.array([row.vx, row.vy, row.vz, row.yaw_rate], dtype=np.float32),
-                        },
-                        'action': np.array([row.vx, row.vy, row.vz, row.yaw_rate], dtype=np.float32),
-                        'discount': 1.0,
-                        'reward': float(i == len(df)-1),
-                        'is_first': i == 0,
-                        'is_last': i == len(df)-1,
-                        'is_terminal': i == len(df)-1,
-                        'language_instruction': instruction,
-                        'language_embedding': language_embedding,
-                    }
-                    episode.append(step)
+                # check state and action
+                state = np.nan_to_num(
+                    [float(row.vx), float(row.vy), float(row.vz), float(row.yaw_rate)],
+                    nan=0.0
+                ).astype(np.float32)
 
-                sample = {
-                    'steps': episode,
-                    'episode_metadata': {
-                        'file_path': csv_path
-                    }
+                step = {
+                    "observation": {
+                        "image": image,
+                        "state": state,
+                    },
+                    "action": state.copy(),
+                    "discount": 1.0,
+                    "reward": float(bool(row.is_last)),
+                    "is_first": bool(int(row.is_first)),
+                    "is_last": bool(int(row.is_last)),
+                    "is_terminal": bool(int(row.is_last)),
+                    "language_instruction": language_instruction,
+                    "language_embedding": language_embedding,
                 }
 
+                episode.append(step)
 
-                # just one episode -> one key
-                yield f"episode_{episode_counter}", sample
-                episode_counter += 1
+            sample = {
+                "steps": episode,
+                "episode_metadata": {
+                    "file_path": os.path.join(root_path, "dataset.csv")
+                }
+            }
+
+            yield f"episode_{episode_id}", sample

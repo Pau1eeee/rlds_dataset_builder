@@ -13,7 +13,7 @@ def merge_dataset(root_path, output_dir):
     episode_id = 0
     merged_rows = []
     all_dirs = list(os.walk(root_path))
-    for dirpath, dirnames, filenames in tqdm(all_dirs, desc="Traversing folders", total=len(all_dirs)):
+    for dirpath, dirnames, filenames in all_dirs:
         if "dataset.csv" in filenames and "user_input.txt" in filenames:
 
             df = pd.read_csv(os.path.join(dirpath, "dataset.csv"))
@@ -25,7 +25,7 @@ def merge_dataset(root_path, output_dir):
             episode_length = len(df)
 
             # Jede Zeile ist ein Schritt
-            for i, row in df.iterrows():
+            for i, row in tqdm(df.iterrows(), total=len(df)):
 
                 old_img_path = os.path.join(
                     dirpath,
@@ -38,9 +38,9 @@ def merge_dataset(root_path, output_dir):
                 shutil.copy2(old_img_path, new_img_path)
 
                 merged_rows.append({
-                    "episode_id": episode_id,            # neue Episode
-                    "step_index": i,                     # Schritt innerhalb Episode
-                    "image_id": global_image_id,         # neue globale ID
+                    "episode_id": episode_id,
+                    "step_index": i,
+                    "image_id": global_image_id,
                     "vx": row.vx,
                     "vy": row.vy,
                     "vz": row.vz,

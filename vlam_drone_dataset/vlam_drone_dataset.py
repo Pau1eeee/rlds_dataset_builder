@@ -12,12 +12,12 @@ import shutil
 from tqdm import tqdm
 
 
-class ThwsDrone(tfds.core.GeneratorBasedBuilder):
+class VlamDrone(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
-    VERSION = tfds.core.Version('1.0.0')
+    VERSION = tfds.core.Version('1.9.0')
     RELEASE_NOTES = {
-      '1.0.0': 'Initial release.',
+      '1.9.0': 'Initial release.',
     }
 
     DATASET_PATH = r"/mnt/d/Projekte/Vlam/vlam_drone_project/thws_dataset"
@@ -102,7 +102,7 @@ class ThwsDrone(tfds.core.GeneratorBasedBuilder):
         df = pd.read_csv(os.path.join(root_path, "dataset.csv"))
 
 
-        for episode_id, episode_df in tqdm(df.groupby("episode_id"), total=df["episode_id"].nunique(), desc="Processing episodes"):
+        for episode_id, episode_df in df.groupby("episode_id"):
             episode = []
 
 
@@ -112,7 +112,7 @@ class ThwsDrone(tfds.core.GeneratorBasedBuilder):
                 self._embed([language_instruction])[0], dtype=np.float32
             ).reshape(512,)
 
-            for _, row in episode_df.iterrows():
+            for _, row in tqdm(episode_df.iterrows(), total=len(episode_df), desc=f"Episode {episode_id}"):
                 img_name = f"img_{int(row.image_id):06d}.png"
                 img_path = os.path.join(root_path, "images", img_name)
                 image = np.array(Image.open(img_path).convert("RGB"), dtype=np.uint8)

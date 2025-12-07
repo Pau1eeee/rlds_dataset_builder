@@ -15,9 +15,9 @@ from tqdm import tqdm
 class VlamDrone(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
-    VERSION = tfds.core.Version('1.9.0')
+    VERSION = tfds.core.Version('1.1.0')
     RELEASE_NOTES = {
-      '1.9.0': 'Initial release.',
+      '1.1.0': 'Initial release.',
     }
 
     DATASET_PATH = r"/mnt/d/Projekte/Vlam/vlam_drone_project/thws_dataset"
@@ -30,7 +30,7 @@ class VlamDrone(tfds.core.GeneratorBasedBuilder):
         """Dataset metadata (homepage, citation,...)."""
         return self.dataset_info_from_configs(
             features=tfds.features.FeaturesDict({
-                'steps': tfds.features.Sequence({
+                'steps': tfds.features.Dataset({
                     'observation': tfds.features.FeaturesDict({
                         'image': tfds.features.Image(
                             shape=(800, 848, 3),
